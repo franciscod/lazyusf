@@ -26,7 +26,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <float.h>
-#include <fpu_control.h>
+#include <fenv.h>
 #include "main.h"
 #include "cpu.h"
 #include "exception.h"
@@ -37,7 +37,7 @@
 #include "registers.h"
 
 
-int32_t RoundingModel = _FPU_RC_NEAREST;
+int32_t RoundingModel = FE_TONEAREST;
 
 #define ADDRESS_ERROR_EXCEPTION(Address,FromRead) \
     DoAddressError(NextInstruction == JUMP,Address,FromRead);\
@@ -1280,16 +1280,16 @@ void r4300i_COP1_CT (void)
         switch((FPCR[Opcode.fs] & 3))
         {
         case 0:
-            RoundingModel = _FPU_RC_NEAREST;
+            RoundingModel = FE_TONEAREST;
             break;
         case 1:
-            RoundingModel = _FPU_RC_ZERO;
+            RoundingModel = FE_TOWARDZERO;
             break;
         case 2:
-            RoundingModel = _FPU_RC_UP;
+            RoundingModel = FE_UPWARD;
             break;
         case 3:
-            RoundingModel = _FPU_RC_DOWN;
+            RoundingModel = FE_DOWNWARD;
             break;
         }
         return;
@@ -1594,49 +1594,49 @@ void r4300i_COP1_D_NEG (void)
 void r4300i_COP1_D_TRUNC_L (void)   //added by Witten
 {
     TEST_COP1_USABLE_EXCEPTION
-    controlfp(_FPU_RC_ZERO);
+    controlfp(FE_TOWARDZERO);
     Double_RoundToInteger64(&*(int64_t *)FPRFloatLocation[Opcode.fd],&*(double *)FPRDoubleLocation[Opcode.fs] );
 }
 
 void r4300i_COP1_D_CEIL_L (void)    //added by Witten
 {
     TEST_COP1_USABLE_EXCEPTION
-    controlfp(_FPU_RC_UP);
+    controlfp(FE_UPWARD);
     Double_RoundToInteger64(&*(int64_t *)FPRFloatLocation[Opcode.fd],&*(double *)FPRDoubleLocation[Opcode.fs] );
 }
 
 void r4300i_COP1_D_FLOOR_L (void)   //added by Witten
 {
     TEST_COP1_USABLE_EXCEPTION
-    controlfp(_FPU_RC_DOWN);
+    controlfp(FE_DOWNWARD);
     Double_RoundToInteger64(&*(int64_t *)FPRDoubleLocation[Opcode.fd],&*(double *)FPRFloatLocation[Opcode.fs]);
 }
 
 void r4300i_COP1_D_ROUND_W (void)
 {
     TEST_COP1_USABLE_EXCEPTION
-    controlfp(_FPU_RC_NEAREST);
+    controlfp(FE_TONEAREST);
     Double_RoundToInteger32(&*(int32_t *)FPRFloatLocation[Opcode.fd],&*(double *)FPRDoubleLocation[Opcode.fs] );
 }
 
 void r4300i_COP1_D_TRUNC_W (void)
 {
     TEST_COP1_USABLE_EXCEPTION
-    controlfp(_FPU_RC_ZERO);
+    controlfp(FE_TOWARDZERO);
     Double_RoundToInteger32(&*(int32_t *)FPRFloatLocation[Opcode.fd],&*(double *)FPRDoubleLocation[Opcode.fs] );
 }
 
 void r4300i_COP1_D_CEIL_W (void)    //added by Witten
 {
     TEST_COP1_USABLE_EXCEPTION
-    controlfp(_FPU_RC_UP);
+    controlfp(FE_UPWARD);
     Double_RoundToInteger32(&*(int32_t *)FPRFloatLocation[Opcode.fd],&*(double *)FPRDoubleLocation[Opcode.fs] );
 }
 
 void r4300i_COP1_D_FLOOR_W (void)   //added by Witten
 {
     TEST_COP1_USABLE_EXCEPTION
-    controlfp(_FPU_RC_DOWN);
+    controlfp(FE_DOWNWARD);
     Double_RoundToInteger32(&*(int32_t *)FPRDoubleLocation[Opcode.fd],&*(double *)FPRFloatLocation[Opcode.fs]);
 }
 

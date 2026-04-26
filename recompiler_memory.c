@@ -23,8 +23,8 @@
  * should be forwarded to them so if they want them.
  *
  */
+#include <stdio.h>
 #include <stdlib.h>
-#include <malloc.h>
 #include <memory.h>
 #include <signal.h>
 #include <sys/mman.h>
@@ -47,6 +47,7 @@ uint8_t * RecompPos = 0;
 uint32_t TempValue = 0;
 
 
+#ifdef __linux__
 #ifndef  __USE_GNU
 #define __USE_GNU
 #endif
@@ -158,14 +159,14 @@ static int32_t CONV_REG64(int32_t dest_reg)
         return 7;
         break;
     default:
-        asm("int $3");
+        __builtin_debugtrap();
         return 255;
         break;
     }
 }
 
 
-#ifdef __LP64__
+#if defined(__x86_64__)
 int r4300i_CPU_MemoryFilter64_2( uintptr_t MemAddress, ucontext_t * context)
 {
     uint8_t * ip = (uint8_t *)context->uc_mcontext.gregs[REG_RIP];
@@ -337,7 +338,7 @@ static int32_t CONV_REG(int32_t dest_reg)
         return 0;
         break;
     default:
-        asm volatile("int $3");
+        __builtin_debugtrap();
         return 255;
         break;
     }
@@ -481,7 +482,15 @@ int r4300i_CPU_MemoryFilter64_2( uintptr_t MemAddress, ucontext_t * context)
     return 1;
 
 }
-#endif
+#endif /* __LP64__ / __i386__ */
+
+#else /* !__linux__ */
+
+#include <stdio.h>
+
+void InitExceptionHandler(void) {}
+
+#endif /* __linux__ */
 
 
 void Compile_LB ( int32_t Reg, uint32_t addr, uint32_t SignExtend )

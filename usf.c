@@ -337,6 +337,8 @@ bool usf_init(char fn[])
     savestatespace = NULL;
     cpu_running = fake_seek_stopping = 0;
     play_time = 0.0;
+    track_time = 360000;
+    enablecompare = enableFIFOfull = -1;
 
     // Allocate main memory after usf loads (to determine ram size)
 
@@ -369,21 +371,6 @@ bool usf_play()
         {
             play_time = 0;
 
-            printf("Start Emulation using ");
-            if(CPU_Type==CPU_Interpreter && RSP_Cpu==CPU_Interpreter)
-            {
-                printf("Interpreter\n");
-            }
-            else if (CPU_Type==CPU_Recompiler && RSP_Cpu==CPU_Recompiler)
-            {
-                printf("Recompiler\n");
-            }
-            else
-            {
-                printf("different or unknown Main-CPU-Type and RSP-CPU-Type:\n");
-                printf("Main-CPU-Type: %d\n", CPU_Type);
-                printf("RSP-CPU-Type : %d\n", RSP_Cpu);
-            }
 
             StartEmulationFromSave(savestatespace);
             if(!fake_seek_stopping)

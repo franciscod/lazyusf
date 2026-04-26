@@ -24,7 +24,7 @@
  *
  */
 #include <float.h>
-#include <fpu_control.h>
+#include <fenv.h>
 #include <stdio.h>
 #include "main.h"
 #include "cpu.h"

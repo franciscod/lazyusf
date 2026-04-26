@@ -26,7 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fpu_control.h>
+#include <fenv.h>
 #include "main.h"
 #include "audio.h"
 #include "audio_hle.h"
@@ -46,7 +46,11 @@ CPU_ACTION * CPU_Action = 0;
 SYSTEM_TIMERS * Timers = 0;
 OPCODE Opcode;
 uint32_t CPURunning = 0, SPHack = 0;
+#if defined(__x86_64__) || defined(__i386__)
 uint32_t * WaitMode = 0, CPU_Type = CPU_Recompiler;
+#else
+uint32_t * WaitMode = 0, CPU_Type = CPU_Interpreter;
+#endif
 
 
 void ChangeCompareTimer(void)
@@ -831,18 +835,10 @@ void TimerDone (void)
 
 void Int3()
 {
-    asm("int $3");
+    __builtin_debugtrap();
 }
 
-void controlfp(uint32_t control)
+void controlfp(int control)
 {
-    uint32_t OldControl = 0;
-
-    _FPU_GETCW(OldControl);
-    OldControl &= ~(_FPU_RC_ZERO | _FPU_RC_UP | _FPU_RC_DOWN | _FPU_RC_NEAREST);
-
-    OldControl |= control;
-
-    _FPU_SETCW(OldControl);
-
+    fesetround(control);
 }

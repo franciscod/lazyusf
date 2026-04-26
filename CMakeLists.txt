@@ -18,19 +18,32 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 find_library(FLAC_LIBRARIES FLAC)
 find_library(AO_LIBRARIES ao)
+find_library(OGG_LIBRARIES ogg)
+
+# Ensure headers from the same prefix as the libraries are found
+get_filename_component(_ogg_libdir "${OGG_LIBRARIES}" DIRECTORY)
+include_directories("${_ogg_libdir}/../include")
+if(AO_LIBRARIES)
+    get_filename_component(_ao_libdir "${AO_LIBRARIES}" DIRECTORY)
+    include_directories("${_ao_libdir}/../include")
+endif()
 
 if(UNIX AND NOT AO_LIBRARIES)
     message(ERROR "Could not find libao. On-the-Fly playback won't be available. On Linux systems try installing: libao-devel (RPM based systems) or libao-dev (DEB based systems)")
 elseif(NOT BUILD_STATIC)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DPLAYBACK_SUPPORT")
-    set(LD_FLAGS ${LD_FLAGS} ao pthread)
+    set(LD_FLAGS ${LD_FLAGS} ${AO_LIBRARIES} pthread)
 endif()
 
 if(UNIX AND NOT FLAC_LIBRARIES)
     message(ERROR "Could not find libFLAC. Writing directly to FLAC won't be possible. On Linux systems try installing: flac-devel (RPM based systems) or libflac-dev (DEB based systems)")
 else()
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DFLAC_SUPPORT")
-    set(LD_FLAGS ${LD_FLAGS} FLAC ogg m)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+    if(OGG_LIBRARIES)
+        set(LD_FLAGS ${LD_FLAGS} ${OGG_LIBRARIES} m)
+    else()
+        set(LD_FLAGS ${LD_FLAGS} ogg m)
+    endif()
 endif()
 
 

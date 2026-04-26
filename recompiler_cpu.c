@@ -3996,10 +3996,12 @@ void CallBlock(void (*block)(void))
     __asm__ __volatile__("popq %rdx");
     __asm__ __volatile__("popq %rcx");
     __asm__ __volatile__("popq %rbx");
-#else
+#elif defined(__i386__)
     __asm__ __volatile__("pusha");
     block();
     __asm__ __volatile__("popa");
+#else
+    block();
 #endif
 
 }

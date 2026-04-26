@@ -68,7 +68,7 @@ void RunRsp             ( void );
 void StartEmulation     ( void );
 void TimerDone          ( void );
 void RecompileTimerDone ( void );
-void controlfp          (uint32_t mask);
+void controlfp          (int mode);
 void StartEmulationFromSave ( void * savestate );
 
 #define NORMAL                  0

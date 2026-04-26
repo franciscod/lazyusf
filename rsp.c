@@ -27,7 +27,11 @@ uint32_t RSP_NextInstruction = 0;
 
 uint32_t RSP_NextInstruction, RSP_JumpTo;
 uint32_t RSP_Running = 0;
+#if defined(__x86_64__) || defined(__i386__)
 int8_t RSP_Cpu = CPU_Recompiler;
+#else
+int8_t RSP_Cpu = CPU_Interpreter;
+#endif
 
 
 void RSPSetJumpTable (void);
@@ -59,30 +63,33 @@ void RSPReInitMemory()
 
 int32_t RSPAllocateMemory (void)
 {
-    RSPRecompCode=(uint8_t *) malloc_exec(RSP_RECOMPMEM_SIZE + RSP_SECRECOMPMEM_SIZE);
-    if(RSPRecompCode == NULL)
+    if (RSP_Cpu != CPU_Interpreter)
     {
-        DisplayError("Not enough memory for RSP RSPRecompCode!");
-        return 0;
+        RSPRecompCode=(uint8_t *) malloc_exec(RSP_RECOMPMEM_SIZE + RSP_SECRECOMPMEM_SIZE);
+        if(RSPRecompCode == NULL)
+        {
+            DisplayError("Not enough memory for RSP RSPRecompCode!");
+            return 0;
+        }
+
+        RSPRecompCodeSecondary = RSPRecompCode + RSP_RECOMPMEM_SIZE;
+
+        RSPJumpTables = malloc(0x2000 * MaxMaps);
+
+        if( RSPJumpTables == NULL )
+        {
+            DisplayError("Not enough memory for Jump Table!");
+            return 0;
+        }
+
+        memset((uint8_t*)RSPJumpTables, 0, 0x2000 * MaxMaps);
+        memset((uint8_t*)RSPRecompCode, 0, 0x00400000);
+        memset((uint8_t*)RSPRecompCodeSecondary, 0, 0x00200000);
+
+        RSPJumpTable = (void **)RSPJumpTables;
+        RSPRecompPos = RSPRecompCode;
+        NoOfMaps = 0;
     }
-
-    RSPRecompCodeSecondary = RSPRecompCode + RSP_RECOMPMEM_SIZE;
-
-    RSPJumpTables = malloc(0x2000 * MaxMaps);
-
-    if( RSPJumpTables == NULL )
-    {
-        DisplayError("Not enough memory for Jump Table!");
-        return 0;
-    }
-
-    memset((uint8_t*)RSPJumpTables, 0, 0x2000 * MaxMaps);
-    memset((uint8_t*)RSPRecompCode, 0, 0x00400000);
-    memset((uint8_t*)RSPRecompCodeSecondary, 0, 0x00200000);
-
-    RSPJumpTable = (void **)RSPJumpTables;
-    RSPRecompPos = RSPRecompCode;
-    NoOfMaps = 0;
     return 1;
 }
 
@@ -1084,10 +1091,12 @@ void init_rsp(void)
     memset(RSP_GPR,0,sizeof(*RSP_GPR));
     memset(RSP_Vect,0,sizeof(*RSP_Vect));
 
-#ifndef USEX64
+#if defined(__x86_64__)
+    asm volatile("push %%rbx; mov $1, %%eax; cpuid; pop %%rbx" : : "a"(CpuFeatures) : "rdx","rcx");
+#elif defined(__i386__)
     asm volatile("push %%ebx; mov $1, %%eax; cpuid; pop %%ebx" : : "a"(CpuFeatures) : "edx","ecx");
 #else
-    asm volatile("push %%rbx; mov $1, %%eax; cpuid; pop %%rbx" : : "a"(CpuFeatures) : "rdx","rcx");
+    (void)CpuFeatures;
 #endif
 
 
@@ -1098,9 +1107,8 @@ void init_rsp(void)
     if(!RSP_Cpu)
     {
         BuildRecompilerCPU();
+        ClearAllx86Code();
     }
-
-    ClearAllx86Code();
 
 }
 

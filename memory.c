@@ -23,8 +23,8 @@
  * should be forwarded to them so if they want them.
  *
  */
+#include <stdio.h>
 #include <stdlib.h>
-#include <malloc.h>
 #include <memory.h>
 #include <sys/mman.h>
 
@@ -53,12 +53,15 @@ uint32_t MemoryState = 0;
 #define PAGE_SIZE   4096
 void *malloc_exec(uint32_t bytes)
 {
-    void *ptr = NULL;
-
-    ptr = mmap(0,bytes,PROT_EXEC|PROT_READ|PROT_WRITE,MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, 0, 0);
-
-    return ptr;
-
+    void *ptr;
+#if defined(__linux__) && (defined(__x86_64__) || defined(__i386__))
+    ptr = mmap(0, bytes, PROT_EXEC|PROT_READ|PROT_WRITE,
+               MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, 0, 0);
+#else
+    ptr = mmap(0, bytes, PROT_EXEC|PROT_READ|PROT_WRITE,
+               MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+#endif
+    return (ptr == MAP_FAILED) ? NULL : ptr;
 }
 
 int32_t Allocate_Memory ( void )
@@ -177,7 +180,6 @@ void Release_Memory ( void )
             ROMPages[i] = 0;
         }
     }
-    printf("Freeing memory\n");
 
     MemoryState = 0;
 

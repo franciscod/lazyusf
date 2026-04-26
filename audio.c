@@ -3,7 +3,7 @@
 #include <fcntl.h>
 #include <math.h>
 #include <unistd.h>
-#include <byteswap.h>
+#include <stdio.h>
 
 #ifdef FLAC_SUPPORT
 #include <FLAC/stream_encoder.h>
@@ -19,6 +19,14 @@
 #include "main.h"
 #include "cpu.h"
 #include "registers.h"
+
+
+#define bswap_16(value) \
+((((value) & 0xff) << 8) | ((value) >> 8))
+
+#define bswap_32(value) \
+(((uint32_t)bswap_16((uint16_t)((value) & 0xffff)) << 16) | \
+(uint32_t)bswap_16((uint16_t)((value) >> 16)))
 
 // AU file header
 typedef struct
@@ -56,10 +64,26 @@ FLAC__StreamEncoder * flacEncoder=NULL; // pointer to flac encoder
 
 uint32_t SampleRate = 0;
 
-int8_t playingback = 0;
+int8_t playingback = 1;
 #ifdef PLAYBACK_SUPPORT
 ao_device *device;
 #endif // PLAYBACK_SUPPORT
+
+void InitAudio(void)
+{
+#ifdef PLAYBACK_SUPPORT
+    if(playingback)
+        ao_initialize();
+#endif
+}
+
+void DoneAudio(void)
+{
+#ifdef PLAYBACK_SUPPORT
+    if(playingback)
+        ao_shutdown();
+#endif
+}
 
 void OpenSound(void)
 {
@@ -84,7 +108,7 @@ void OpenSound(void)
         }
     }
 
-    if (!useFlac)
+    if (!useFlac && !playingback)
     {
         fd = open(filename, O_RDWR|O_CREAT,0644);
         if (fd < 0)
@@ -186,22 +210,16 @@ void OpenSound(void)
 #ifdef PLAYBACK_SUPPORT
     if(playingback)
     {
-        /* -- Initialize libao -- */
-        ao_initialize();
-
-        /* -- Setup for default driver -- */
-        int default_driver;
-        default_driver = ao_default_driver_id();
+        int default_driver = ao_default_driver_id();
 
         ao_sample_format format;
         memset(&format, 0, sizeof(format));
         format.bits = 16;
         format.channels = 2;
         format.rate = SampleRate;
-        format.byte_format = AO_FMT_BIG;
+        format.byte_format = AO_FMT_NATIVE;
 
-        /* -- Open driver -- */
-        device = ao_open_live(default_driver, &format, NULL /* no options */);
+        device = ao_open_live(default_driver, &format, NULL);
         if (device == NULL)
         {
             fprintf(stderr, "Error opening device.\n");
@@ -212,12 +230,11 @@ void OpenSound(void)
     }
 #endif // PLAYBACK_SUPPORT
 
-    printf("Time [min]:\n");
 }
 
 void CloseSound(void)
 {
-    if(!useFlac)
+    if(!useFlac && !playingback)
     {
         close(fd);
     }
@@ -234,9 +251,8 @@ void CloseSound(void)
 #ifdef PLAYBACK_SUPPORT
     if(playingback)
     {
-        /* -- Close and shutdown libao -- */
         ao_close(device);
-        ao_shutdown();
+        device = NULL;
     }
 #endif // PLAYBACK_SUPPORT
 }
@@ -276,7 +292,6 @@ void AddBuffer(unsigned char *buf, unsigned int length)
             // none
             // in this case no need to play the fade part
             cpu_running = 0;
-            printf("\n");
             return;
             break;
         }
@@ -310,7 +325,19 @@ void AddBuffer(unsigned char *buf, unsigned int length)
 #ifdef PLAYBACK_SUPPORT
     if(playingback)
     {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        /* buffer is big-endian; swap to native for ao */
+        for (unsigned int j = 0; j < length; j += 2) {
+            uint8_t tmp = buf[j]; buf[j] = buf[j+1]; buf[j+1] = tmp;
+        }
         ao_play(device, (char*)buf, length);
+        /* restore big-endian for .au / FLAC output below */
+        for (unsigned int j = 0; j < length; j += 2) {
+            uint8_t tmp = buf[j]; buf[j] = buf[j+1]; buf[j+1] = tmp;
+        }
+#else
+        ao_play(device, (char*)buf, length);
+#endif
     }
 #endif // PLAYBACK_SUPPORT
 #ifdef FLAC_SUPPORT
@@ -326,6 +353,7 @@ void AddBuffer(unsigned char *buf, unsigned int length)
     }
     else
 #endif // FLAC_SUPPORT
+    if (!playingback)
     {
         // write raw pcm to au file
         unsigned int status = write(fd, buf, length);
@@ -336,12 +364,10 @@ void AddBuffer(unsigned char *buf, unsigned int length)
     }
 
     play_time += (((double)(length >> 2) / (double)SampleRate) * 1000.0);
-    printf("\r%f",(play_time/60000));
 
     if((!(track_time >> (sizeof(uint32_t)*8 -1))) && (play_time > (track_time + fade_time)))
     {
         cpu_running = 0;
-        printf("\n");
     }
 }
 

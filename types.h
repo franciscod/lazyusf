@@ -26,7 +26,7 @@
 #ifndef __Types_h
 #define __Types_h
 
-#ifdef __LP64__
+#if defined(__x86_64__)
 #define USEX64
 #define EXTREGS
 #endif

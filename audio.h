@@ -4,6 +4,8 @@
 uint32_t AiReadLength(void);
 void AiLenChanged(void);
 void AiDacrateChanged(uint32_t value);
+void InitAudio(void);
+void DoneAudio(void);
 void OpenSound(void);
 void CloseSound(void);
 

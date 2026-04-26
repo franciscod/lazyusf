@@ -5,7 +5,10 @@
 #include <libgen.h>
 
 #include <getopt.h>
-#include <linux/limits.h>
+#include <limits.h>
+#include <unistd.h>
+#include <termios.h>
+#include <pthread.h>
 
 #include <signal.h>
 
@@ -13,6 +16,8 @@
 #include "usf.h"
 #include "audio.h"
 #include "memory.h"
+
+#define VERSION "0.260425.1"
 
 static const struct
 {
@@ -48,40 +53,126 @@ void DisplayError (char * Message, ...)
     printf("Error: %s\n", Msg);
 }
 
-void sig(int signo)//, siginfo_t * info, ucontext_t * context)
-{
-    static bool firstTime=true;
+/* set by key thread to request going back to previous track */
+static volatile bool go_prev = false;
 
+/* set by key thread or second Ctrl-C to abort all playback */
+static volatile bool quit_all = false;
+
+/* set by -L flag */
+static volatile bool loopPlaylist = false;
+
+/* set by --forever flag or 'l' key; persists across tracks */
+static volatile bool playForever = false;
+
+/* natural track_time saved when entering forever mode, for toggling back */
+static uint32_t saved_track_time = 0;
+
+static pthread_mutex_t term_mutex = PTHREAD_MUTEX_INITIALIZER;
+static volatile bool display_ready = false;
+
+static void print_status(void)
+{
+    if (!isatty(STDOUT_FILENO)) return;
+    uint32_t cur_ms = (uint32_t)play_time;
+    if (track_time >> (sizeof(uint32_t)*8 - 1)) {
+        printf("\r\033[K[n] next  [p] previous  [l] forever  [q] quit    %u:%02u / Forever",
+            cur_ms / 60000, (cur_ms / 1000) % 60);
+    } else {
+        uint32_t tot_ms = track_time;
+        printf("\r\033[K[n] next  [p] previous  [l] forever  [q] quit    %u:%02u / %u:%02u",
+            cur_ms / 60000, (cur_ms / 1000) % 60,
+            tot_ms / 60000, (tot_ms / 1000) % 60);
+    }
+    fflush(stdout);
+}
+
+static struct termios orig_termios;
+static bool raw_mode_active = false;
+
+static void disable_raw_mode(void)
+{
+    if (raw_mode_active) {
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+        raw_mode_active = false;
+    }
+}
+
+static void enable_raw_mode(void)
+{
+    if (!isatty(STDIN_FILENO)) return;
+    tcgetattr(STDIN_FILENO, &orig_termios);
+    atexit(disable_raw_mode);
+    struct termios raw = orig_termios;
+    raw.c_lflag &= ~(ECHO | ICANON);
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+    raw_mode_active = true;
+}
+
+static void *key_reader(void *arg)
+{
+    (void)arg;
+    char c;
+    while (read(STDIN_FILENO, &c, 1) == 1) {
+        switch (c) {
+        case 'n': case 'N':
+            StopEmulation();
+            break;
+        case 'p': case 'P':
+            go_prev = true;
+            StopEmulation();
+            break;
+        case 'l': case 'L':
+            playForever = !playForever;
+            if (playForever) {
+                saved_track_time = track_time & 0x7FFFFFFF;
+                track_time |= 1u << (sizeof(uint32_t)*8 - 1);
+            } else {
+                track_time = saved_track_time;
+            }
+            pthread_mutex_lock(&term_mutex);
+            if (display_ready) print_status();
+            pthread_mutex_unlock(&term_mutex);
+            break;
+        case 'q': case 'Q':
+            quit_all = true;
+            StopEmulation();
+            break;
+        }
+    }
+    return NULL;
+}
+
+static void *status_thread(void *arg)
+{
+    (void)arg;
+    while (!quit_all) {
+        pthread_mutex_lock(&term_mutex);
+        if (display_ready)
+            print_status();
+        pthread_mutex_unlock(&term_mutex);
+        usleep(250000);
+    }
+    return NULL;
+}
+
+void sig(int signo)
+{
     switch(signo)
     {
     case SIGUSR1:
-        puts("sigusr1");
         play_time = track_time;
         break;
     case SIGINT:
-        if(firstTime)
-        {
-            firstTime=false;
-            puts("\nReceived SIGINT.");
-            if(fade_type==1 || fade_type==2 || fade_type==3)
-            {
-                puts("Fading out...");
-            }
-            //disable playing forever
-            track_time &= 0x7FFFFFFF;
-            play_time = track_time;
-            break;
-        }
-        else
-        {
-            StopEmulation();
-            Release_Memory();
-            exit(0);
-        }
-        break;
+        quit_all = true;
+        StopEmulation();
+        Release_Memory();
+        DoneAudio();
+        disable_raw_mode();
+        exit(0);
     }
-
-    return;
 }
 
 void InitSigHandler(void)
@@ -171,6 +262,7 @@ static const struct option long_options[] =
     {"interpreter",     no_argument,       NULL, 'i'},
     {"forever",         no_argument,       NULL, 'e'},
     {"double",          no_argument,       NULL, 'd'},
+    {"loop",            no_argument,       NULL, 'L'},
     {"help",            no_argument,       NULL, 'h'},
     {0, 0, 0, 0}
 };
@@ -224,10 +316,10 @@ int main(int argc, char** argv)
     int option_index = 0;
 
     char* formatStr = NULL;
-    bool playForever = false, doublePlayLength = false;
+    bool doublePlayLength = false;
 
     int ch;
-    while((ch = getopt_long(argc, argv, "o:f:rpiedh", long_options, &option_index)) != -1)
+    while((ch = getopt_long(argc, argv, "o:f:rpiedLh", long_options, &option_index)) != -1)
     {
         switch (ch)
         {
@@ -259,11 +351,15 @@ int main(int argc, char** argv)
             break;
 
         case 'e': // play forever
-            playForever = true;
+            playForever = true; /* global */
             break;
 
         case 'd': // double length
             doublePlayLength = true;
+            break;
+
+        case 'L': // loop playlist
+            loopPlaylist = true;
             break;
 
         case 'f':
@@ -289,40 +385,68 @@ int main(int argc, char** argv)
         }
     }
 
-    do
+    if(optind >= argc)
     {
-        if(!argv[optind])
-        {
-            puts("No path was specified");
-            continue;
-        }
+        puts("No path was specified");
+        return 1;
+    }
 
-        if(!realpath(argv[optind],filename))
+    InitAudio();
+
+    if(isatty(STDOUT_FILENO))
+        printf("lazyusf v%s\n\n", VERSION);
+
+    pthread_t key_tid;
+    bool key_thread_running = false;
+    pthread_t status_tid;
+    bool status_thread_running = false;
+    if(isatty(STDIN_FILENO))
+    {
+        enable_raw_mode();
+        pthread_create(&key_tid, NULL, key_reader, NULL);
+        key_thread_running = true;
+    }
+    if(isatty(STDOUT_FILENO))
+    {
+        pthread_create(&status_tid, NULL, status_thread, NULL);
+        status_thread_running = true;
+    }
+
+    int first_index = optind;
+    int i = optind;
+    bool first_track = true;
+    while(i < argc && !quit_all)
+    {
+        go_prev = false;
+
+        if(!realpath(argv[i], filename))
         {
-            printf("Failed to get the full path of \"%s\". Does it exist?\n", argv[optind]);
+            printf("Failed to get the full path of \"%s\". Does it exist?\n", argv[i]);
+            i++;
             continue;
         }
 
         if(usf_init(filename))
         {
-            puts("");
-            printf("Game     : %s\n", game);
-            printf("Title    : %s\n", title);
-            printf("Artist   : %s\n", artist);
-            printf("Genre    : %s\n", genre);
-            printf("Copyright: %s\n", copyright);
-            printf("Year     : %s\n", year);
-            puts("");
-
+            saved_track_time = track_time;
             if(playForever)
-            {
-                track_time |= 1 << (sizeof(uint32_t)*8 -1);
-                puts("Playing forever");
-            }
-            else
-            {
-                printf("Playing for %f min\n", track_time/1000.0/60.0);
-            }
+                track_time |= 1u << (sizeof(uint32_t)*8 - 1);
+#define TRACK_LINES 7
+            pthread_mutex_lock(&term_mutex);
+            if(!first_track && isatty(STDOUT_FILENO))
+                printf("\033[%dF", TRACK_LINES);
+            first_track = false;
+
+            printf("%-12s%s\033[K\n", "Game:", game);
+            printf("%-12s%s\033[K\n", "Title:", title);
+            printf("%-12s%s\033[K\n", "Artist:", artist);
+            printf("%-12s%s\033[K\n", "Genre:", genre);
+            printf("%-12s%s\033[K\n", "Copyright:", copyright);
+            printf("%-12s%s\033[K\n", "Year:", year);
+            printf("\033[K\n");
+            display_ready = true;
+            print_status();
+            pthread_mutex_unlock(&term_mutex);
 
             if(doublePlayLength)
             {
@@ -343,10 +467,6 @@ int main(int argc, char** argv)
                 strcat(filename,".au");
             }
 
-            puts("");
-            printf("enablecompare: %d\n", enablecompare);
-            printf("enableFIFOfull: %d\n\n", enableFIFOfull);
-
             if(!usf_play())
             {
                 printf("An Error occured while play.\n");
@@ -356,9 +476,28 @@ int main(int argc, char** argv)
         {
             printf("An Error occured while init.\n");
         }
-    }
-    while(++optind < argc);
 
+        if(go_prev && i > first_index)
+            i--;
+        else if(++i >= argc && loopPlaylist)
+            i = first_index;
+    }
+
+    if(status_thread_running)
+    {
+        pthread_cancel(status_tid);
+        pthread_join(status_tid, NULL);
+        if(isatty(STDOUT_FILENO)) printf("\n");
+    }
+
+    if(key_thread_running)
+    {
+        pthread_cancel(key_tid);
+        pthread_join(key_tid, NULL);
+        disable_raw_mode();
+    }
+
+    DoneAudio();
     free(formatStr);
 
     return 0;

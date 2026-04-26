@@ -24,7 +24,6 @@
  *
  */
 #include <stdlib.h>
-#include <malloc.h>
 #include <memory.h>
 #include <sys/mman.h>
 

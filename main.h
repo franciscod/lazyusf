@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include <linux/limits.h>
+#include <limits.h>
 
 #define CPU_Interpreter             1
 #define CPU_Recompiler              0
