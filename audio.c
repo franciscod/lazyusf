@@ -258,6 +258,30 @@ void CloseSound(void)
 }
 
 
+/* Read a big-endian int16 from buf at byte offset i */
+static inline int32_t be_read(const unsigned char *buf, unsigned int i)
+{
+    return (int32_t)(int16_t)((buf[i] << 8) | buf[i+1]);
+}
+
+/* Write a big-endian int16 to buf at byte offset i */
+static inline void be_write(unsigned char *buf, unsigned int i, int32_t v)
+{
+    if (v > 32767) v = 32767;
+    if (v < -32768) v = -32768;
+    buf[i]   = (v >> 8) & 0xFF;
+    buf[i+1] = v & 0xFF;
+}
+
+/* 3-sample median without branching */
+static inline int32_t med3(int32_t a, int32_t b, int32_t c)
+{
+    if (a > b) { int32_t t = a; a = b; b = t; }
+    if (b > c) { int32_t t = b; b = c; c = t; }
+    if (a > b) b = a;
+    return b;
+}
+
 void AddBuffer(unsigned char *buf, unsigned int length)
 {
 #ifdef FLAC_SUPPORT
@@ -298,29 +322,43 @@ void AddBuffer(unsigned char *buf, unsigned int length)
     }
 
     uint32_t i = 0;
-    for(i = 0; i<length; i+=2)
+
+    /* Convert little-endian RDRAM samples to big-endian output, applying volume.
+       Input: buf[i]=lo, buf[i+1]=hi (little-endian from DMEM DMA layout)
+       Output: buf[i]=hi, buf[i+1]=lo (big-endian for AU file / playback swap) */
+    for(i = 0; i < length; i += 2)
     {
-        uint8_t byte0 = buf[i];
-        uint8_t byte1 = buf[i+1];
+        int32_t n = (int32_t)(int16_t)((buf[i+1] << 8) | buf[i]);
+        n = (int32_t)(n * vol);
+        if (n > 32767)  n = 32767;
+        if (n < -32768) n = -32768;
+        buf[i]   = (n >> 8) & 0xFF;
+        buf[i+1] = n & 0xFF;
+    }
 
-        //merge byte0 and byte1
-        int16_t n = 0;
-        n |= byte1 & 0xFF;
-        n <<= 8;
-        n |= byte0 & 0xFF;
-
-        n *= vol; // multiplier;
-
-        // the au format uses big endian words
-        n=bswap_16(n);
-
-        //split n into byte0 and byte1
-        byte1   = (n >> 8) & 0xFF;
-        byte0    = n & 0xFF;
-
-        //save the new values
-        buf[i] = byte0;
-        buf[i+1] = byte1;
+    /* 3-tap median filter per channel to reduce impulse artifacts.
+       After the loop above, samples are big-endian: buf[i]=hi, buf[i+1]=lo.
+       Stereo interleave: samples alternate (one per 2 bytes).
+       We apply the median independently to each of the two interleaved channels
+       (every-other sample pair) to avoid cross-channel contamination. */
+    if (length >= 12)
+    {
+        /* Channel 0: sample byte offsets 0, 4, 8, ... — leave first/last unchanged */
+        for (i = 4; i + 6 <= length; i += 4)
+        {
+            int32_t prev = be_read(buf, i - 4);
+            int32_t cur  = be_read(buf, i);
+            int32_t next = be_read(buf, i + 4);
+            be_write(buf, i, med3(prev, cur, next));
+        }
+        /* Channel 1: sample byte offsets 2, 6, 10, ... — leave first/last unchanged */
+        for (i = 6; i + 6 <= length; i += 4)
+        {
+            int32_t prev = be_read(buf, i - 4);
+            int32_t cur  = be_read(buf, i);
+            int32_t next = be_read(buf, i + 4);
+            be_write(buf, i, med3(prev, cur, next));
+        }
     }
 #ifdef PLAYBACK_SUPPORT
     if(playingback)

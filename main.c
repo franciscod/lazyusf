@@ -17,7 +17,7 @@
 #include "audio.h"
 #include "memory.h"
 
-#define VERSION "0.260425.1"
+#define VERSION "0.260518.1"
 
 static const struct
 {

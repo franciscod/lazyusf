@@ -496,7 +496,7 @@ static void ADPCM ()   // Work in progress! :)
     int vscale;
     unsigned short index;
     unsigned short j;
-    int a[8];
+    int64_t a[8];
     short *book1,*book2;
     int l1,l2;
     int inp1[8];
@@ -660,7 +660,7 @@ static void ADPCM ()   // Work in progress! :)
             {
                 a[j^1]=-32768;
             }
-            *(out++)=a[j^1];
+            *(out++)=(short)a[j^1];
         }
         l1=a[6];
         l2=a[7];
@@ -736,7 +736,7 @@ static void ADPCM ()   // Work in progress! :)
             {
                 a[j^1]=-32768;
             }
-            *(out++)=a[j^1];
+            *(out++)=(short)a[j^1];
         }
         l1=a[6];
         l2=a[7];

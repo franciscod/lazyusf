@@ -902,6 +902,7 @@ static void ADDMIXER ()
         {
             temp = -32768;
         }
+        *outp = (s16)temp;
         outp++;
         inp++;
     }
@@ -1054,14 +1055,16 @@ static void FILTER2 ()
         out1[6] += inp2[4]*lutt6[3];
         out1[6] += inp2[7]*lutt6[0];
         out1[6] += inp2[6]*lutt6[1];
-        outp[1] = /*CLAMP*/((out1[1]+0x4000) >> 0xF);
-        outp[0] = /*CLAMP*/((out1[0]+0x4000) >> 0xF);
-        outp[3] = /*CLAMP*/((out1[3]+0x4000) >> 0xF);
-        outp[2] = /*CLAMP*/((out1[2]+0x4000) >> 0xF);
-        outp[5] = /*CLAMP*/((out1[5]+0x4000) >> 0xF);
-        outp[4] = /*CLAMP*/((out1[4]+0x4000) >> 0xF);
-        outp[7] = /*CLAMP*/((out1[7]+0x4000) >> 0xF);
-        outp[6] = /*CLAMP*/((out1[6]+0x4000) >> 0xF);
+#define CLAMP16(x) ((x) > 32767 ? 32767 : (x) < -32768 ? -32768 : (x))
+        outp[1] = CLAMP16((out1[1]+0x4000) >> 0xF);
+        outp[0] = CLAMP16((out1[0]+0x4000) >> 0xF);
+        outp[3] = CLAMP16((out1[3]+0x4000) >> 0xF);
+        outp[2] = CLAMP16((out1[2]+0x4000) >> 0xF);
+        outp[5] = CLAMP16((out1[5]+0x4000) >> 0xF);
+        outp[4] = CLAMP16((out1[4]+0x4000) >> 0xF);
+        outp[7] = CLAMP16((out1[7]+0x4000) >> 0xF);
+        outp[6] = CLAMP16((out1[6]+0x4000) >> 0xF);
+#undef CLAMP16
         inp1 = inp2;
         inp2 += 8;
         outp += 8;
